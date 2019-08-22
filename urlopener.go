@@ -2,11 +2,14 @@ package k8sblob
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net/url"
 	"os"
+	"regexp"
 	"sync"
 	"time"
 
@@ -14,6 +17,7 @@ import (
 	"gocloud.dev/blob"
 	"gocloud.dev/blob/driver"
 	"gocloud.dev/gcerrors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -86,21 +90,36 @@ func (b *Bucket) Attributes(ctx context.Context, key string) (*driver.Attributes
 }
 
 func (b *Bucket) ListPaged(ctx context.Context, opts *driver.ListOptions) (*driver.ListPage, error) {
-	return nil, errors.New("not implemented")
+	list, err := b.client.CoreV1().ConfigMaps(b.namespace).List(metav1.ListOptions{})
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to list config maps")
+	}
+	objects := []*driver.ListObject{}
+	for _, value := range list.Items {
+		objects = append(objects, &driver.ListObject{
+			Key:   value.Data["filename"],
+			Size:  int64(len(value.BinaryData["file"])),
+			IsDir: false,
+		})
+	}
+	return &driver.ListPage{
+		Objects:       objects,
+		NextPageToken: nil,
+	}, nil
 }
 
 func (b *Bucket) NewRangeReader(ctx context.Context, key string, offset, length int64, opts *driver.ReaderOptions) (driver.Reader, error) {
-	return NewConfigMapStorageReader(b.client, b.namespace, escapeKey(key)), nil
+	return NewConfigMapStorageReader(b.client, b.namespace, escapeKey(key), key), nil
 }
 
 func (b *Bucket) NewTypedWriter(ctx context.Context, key string, contentType string, opts *driver.WriterOptions) (driver.Writer, error) {
-	return NewConfigMapStorageWriter(b.client, b.namespace, escapeKey(key)), nil
+	return NewConfigMapStorageWriter(b.client, b.namespace, escapeKey(key), key), nil
 }
 
 func (b *Bucket) Copy(ctx context.Context, dstKey, srcKey string, opts *driver.CopyOptions) error {
 	_, err := io.Copy(
-		NewConfigMapStorageWriter(b.client, b.namespace, escapeKey(dstKey)),
-		NewConfigMapStorageReader(b.client, b.namespace, escapeKey(srcKey)),
+		NewConfigMapStorageWriter(b.client, b.namespace, escapeKey(dstKey), dstKey),
+		NewConfigMapStorageReader(b.client, b.namespace, escapeKey(srcKey), srcKey),
 	)
 	return err
 }
@@ -117,6 +136,9 @@ func (b *Bucket) Close() error {
 	return errors.New("not implemented")
 }
 
+var escape = regexp.MustCompile("/")
+
 func escapeKey(key string) string {
-	return key // lol
+	sum := md5.Sum([]byte(key))
+	return hex.EncodeToString(sum[:])
 }

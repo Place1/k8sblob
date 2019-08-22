@@ -15,6 +15,7 @@ import (
 type ConfigMapStorageReader struct {
 	namespace string
 	name      string
+	filename  string
 	client    *kubernetes.Clientset
 }
 
@@ -23,24 +24,27 @@ type ConfigMapStorageWriter struct {
 	buffer    *bytes.Buffer
 	namespace string
 	name      string
+	filename  string
 	client    *kubernetes.Clientset
 }
 
-func NewConfigMapStorageReader(client *kubernetes.Clientset, namespace string, name string) *ConfigMapStorageReader {
+func NewConfigMapStorageReader(client *kubernetes.Clientset, namespace string, name string, filename string) *ConfigMapStorageReader {
 	return &ConfigMapStorageReader{
 		namespace: namespace,
 		name:      name,
+		filename:  filename,
 		client:    client,
 	}
 }
 
-func NewConfigMapStorageWriter(client *kubernetes.Clientset, namespace string, name string) *ConfigMapStorageWriter {
+func NewConfigMapStorageWriter(client *kubernetes.Clientset, namespace string, name string, filename string) *ConfigMapStorageWriter {
 	buffer := new(bytes.Buffer)
 	return &ConfigMapStorageWriter{
 		Writer:    buffer,
 		buffer:    buffer,
 		namespace: namespace,
 		name:      name,
+		filename:  filename,
 		client:    client,
 	}
 }
@@ -50,7 +54,7 @@ func (w *ConfigMapStorageReader) Read(p []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	return copy(p, configMap.BinaryData[w.name]), io.EOF
+	return copy(p, configMap.BinaryData["file"]), io.EOF
 }
 
 func (w *ConfigMapStorageReader) Close() error {
@@ -59,7 +63,7 @@ func (w *ConfigMapStorageReader) Close() error {
 
 func (w *ConfigMapStorageWriter) Close() error {
 	binaryData := map[string][]byte{}
-	binaryData[w.name] = w.buffer.Bytes()
+	binaryData["file"] = w.buffer.Bytes()
 	next := &v1.ConfigMap{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "ConfigMap",
@@ -70,6 +74,9 @@ func (w *ConfigMapStorageWriter) Close() error {
 			Namespace: w.namespace,
 		},
 		BinaryData: binaryData,
+		Data: map[string]string{
+			"filename": w.filename,
+		},
 	}
 
 	_, err := w.client.CoreV1().ConfigMaps(w.namespace).Get(w.name, metav1.GetOptions{})

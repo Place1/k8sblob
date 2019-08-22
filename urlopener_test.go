@@ -2,6 +2,7 @@ package k8sblob
 
 import (
 	"context"
+	"io"
 	"testing"
 	"time"
 
@@ -61,4 +62,30 @@ func TestCanCopyObjects(t *testing.T) {
 
 	err = bucket.Copy(ctx, "test-object-2", "test-object-1", nil)
 	require.NoError(err)
+}
+
+func TestCanListObjects(t *testing.T) {
+	require := require.New(t)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(1)*time.Second)
+	defer cancel()
+	bucket, err := blob.OpenBucket(ctx, "kubernetes://")
+	require.NoError(err)
+
+	err = bucket.WriteAll(ctx, "test-object", []byte("hello world!"), nil)
+	require.NoError(err)
+
+	results := []string{}
+	iter := bucket.List(nil)
+	for {
+		obj, err := iter.Next(ctx)
+		if err == io.EOF {
+			break
+		}
+		require.NoError(err)
+		if !obj.IsDir {
+			results = append(results, obj.Key)
+		}
+	}
+
+	require.Contains(results, "test-object")
 }
