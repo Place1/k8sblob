@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net/url"
 	"os"
+	"path"
 	"regexp"
 	"sync"
 	"time"
@@ -86,7 +87,7 @@ func (b *Bucket) ErrorAs(error, interface{}) bool {
 }
 
 func (b *Bucket) Attributes(ctx context.Context, key string) (*driver.Attributes, error) {
-	return nil, errors.New("not implemented")
+	return nil, errors.New("k8sblob Attributes() not implemented")
 }
 
 func (b *Bucket) ListPaged(ctx context.Context, opts *driver.ListOptions) (*driver.ListPage, error) {
@@ -108,7 +109,7 @@ func (b *Bucket) ListPaged(ctx context.Context, opts *driver.ListOptions) (*driv
 	}, nil
 }
 
-func (b *Bucket) NewRangeReader(ctx context.Context, key string, offset, length int64, opts *driver.ReaderOptions) (driver.Reader, error) {
+func (b *Bucket) NewRangeReader(ctx context.Context, key string, offset int64, length int64, opts *driver.ReaderOptions) (driver.Reader, error) {
 	return NewConfigMapStorageReader(b.client, b.namespace, escapeKey(key), key), nil
 }
 
@@ -129,16 +130,16 @@ func (b *Bucket) Delete(ctx context.Context, key string) error {
 }
 
 func (b *Bucket) SignedURL(ctx context.Context, key string, opts *driver.SignedURLOptions) (string, error) {
-	return "", errors.New("kubernetes does not support signed object urls")
+	return "", errors.New("k8sblob does not support signed object urls")
 }
 
 func (b *Bucket) Close() error {
-	return errors.New("not implemented")
+	return nil
 }
 
 var escape = regexp.MustCompile("/")
 
 func escapeKey(key string) string {
 	sum := md5.Sum([]byte(key))
-	return hex.EncodeToString(sum[:])
+	return hex.EncodeToString(sum[:]) + "-" + path.Base(key)
 }

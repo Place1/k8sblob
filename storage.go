@@ -3,6 +3,7 @@ package k8sblob
 import (
 	"bytes"
 	"io"
+	"sync"
 
 	"github.com/pkg/errors"
 	"gocloud.dev/blob/driver"
@@ -13,10 +14,14 @@ import (
 )
 
 type ConfigMapStorageReader struct {
+	io.Reader
 	namespace string
 	name      string
 	filename  string
 	client    *kubernetes.Clientset
+	buffer    io.Reader
+	init      sync.Once
+	err       error
 }
 
 type ConfigMapStorageWriter struct {
@@ -50,11 +55,18 @@ func NewConfigMapStorageWriter(client *kubernetes.Clientset, namespace string, n
 }
 
 func (w *ConfigMapStorageReader) Read(p []byte) (int, error) {
-	configMap, err := w.client.CoreV1().ConfigMaps(w.namespace).Get(w.name, metav1.GetOptions{})
-	if err != nil {
-		return 0, err
+	w.init.Do(func() {
+		configMap, err := w.client.CoreV1().ConfigMaps(w.namespace).Get(w.name, metav1.GetOptions{})
+		if err != nil {
+			w.err = err
+		} else {
+			w.buffer = bytes.NewBuffer(configMap.BinaryData["file"])
+		}
+	})
+	if w.err != nil {
+		return 0, errors.Wrapf(w.err, "failed to read filename %v", w.filename)
 	}
-	return copy(p, configMap.BinaryData["file"]), io.EOF
+	return w.buffer.Read(p)
 }
 
 func (w *ConfigMapStorageReader) Close() error {
